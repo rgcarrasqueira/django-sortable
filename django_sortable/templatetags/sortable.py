@@ -44,8 +44,8 @@ class SortableLinkNode(template.Node):
     else:
       self.field_name = field_name
       self.default_direction = 'asc'
-    
-    self.title = title
+
+    self.title = template.Variable(title)
   
   
   def build_link(self, context):
@@ -83,7 +83,11 @@ class SortableLinkNode(template.Node):
   
   def render(self, context):
     url, css_class = self.build_link(context)
-    return '<a href="%s" class="%s" title="%s">%s</a>' % (url, css_class, self.title, self.title)
+    try:
+        title = self.title.resolve(context)
+    except template.VariableDoesNotExist:
+        title = str(self.title.var)
+    return '<a href="%s" class="%s" title="%s">%s</a>' % (url, css_class, title, title)
 
 
 class SortableTableHeaderNode(SortableLinkNode):
@@ -91,7 +95,11 @@ class SortableTableHeaderNode(SortableLinkNode):
   
   def render(self, context):
     url, css_class = self.build_link(context)
-    return '<th class="%s"><a href="%s" title="%s">%s</a></th>' % (css_class, url, self.title, self.title)
+    try:
+        title = self.title.resolve(context)
+    except template.VariableDoesNotExist:
+        title = str(self.title.var)
+    return '<th class="%s"><a href="%s" title="%s">%s</a></th>' % (css_class, url, title, title)
 
 
 class SortableURLNode(SortableLinkNode):
