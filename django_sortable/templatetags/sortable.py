@@ -55,8 +55,7 @@ class SortableLinkNode(template.Node):
       self.field_name = field_name
       self.default_direction = 'asc'
     if format_string:
-      self.format_string_variable = template.Variable(format_string)
-      self.format_string = format_string
+      self.format_string = template.Variable(format_string)
     if img_url:
       self.img_url = template.Variable(img_url)
     self.title = template.Variable(title)
@@ -130,14 +129,13 @@ class SortableFormattableNode(SortableLinkNode):
     except template.VariableDoesNotExist:
       title = str(self.title.var)
     try:
-      format_string = self.format_string_variable.resolve(context)
+      format_string = self.format_string.resolve(context)
     except:
-      format_string = self.format_string or None
+      format_string = unicode(self.format_string) or None
     try:
       img_url = self.img_url.resolve(context)
     except:
-      # raise error if url is invalid?
-      img_url = 'None'
+      img_url = self.img_url or None
     if is_current and img_url is not None:
       is_ascending = css_class == directions['asc']['class']
       rotation_style = ' style="transform: rotate(180deg);"' if is_ascending else ''
