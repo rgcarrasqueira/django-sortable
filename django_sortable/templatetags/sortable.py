@@ -29,17 +29,22 @@ def parse_tag_token(token):
       title = bits[1].capitalize()
   try:
     # TODO: make other url checks
-    img_url = bits[3]
+    format_string = bits[3]
+  except IndexError:
+    format_string = None
+  try:
+    # TODO: make other url checks
+    img_url = bits[4]
   except IndexError:
     img_url = None
   
-  return (bits[1].strip(), title.strip(), img_url)
+  return (bits[1].strip(), title.strip(), format_string, img_url)
   
 
 class SortableLinkNode(template.Node):
   """Build sortable link based on query params."""
   
-  def __init__(self, field_name, title, img_url=None):
+  def __init__(self, field_name, title, format_string=None, img_url=None):
     if field_name.startswith('-'):
       self.field_name = field_name[1:]
       self.default_direction = 'desc'
@@ -49,6 +54,9 @@ class SortableLinkNode(template.Node):
     else:
       self.field_name = field_name
       self.default_direction = 'asc'
+    if format_string:
+      self.format_string_variable = template.Variable(format_string)
+      self.format_string = format_string
     if img_url:
       self.img_url = template.Variable(img_url)
     self.title = template.Variable(title)
@@ -108,6 +116,23 @@ class SortableTableHeaderNode(SortableLinkNode):
       title = self.title.resolve(context)
     except template.VariableDoesNotExist:
       title = str(self.title.var)
+
+    return '<th class="%s"><a href="%s" title="%s">%s</a></th>' % (css_class, url, title, title)
+
+
+class SortableFormattableNode(SortableLinkNode):
+  """Build sortable link header based on query params."""
+
+  def render(self, context):
+    url, css_class, is_current = self.build_link(context)
+    try:
+      title = self.title.resolve(context)
+    except template.VariableDoesNotExist:
+      title = str(self.title.var)
+    try:
+      format_string = self.format_string_variable.resolve(context)
+    except:
+      format_string = self.format_string or None
     try:
       img_url = self.img_url.resolve(context)
     except:
@@ -117,12 +142,12 @@ class SortableTableHeaderNode(SortableLinkNode):
       is_ascending = css_class == directions['asc']['class']
       rotation_style = ' style="transform: rotate(180deg);"' if is_ascending else ''
       image_class_name = 'sort-img %s-img' % css_class
-      direction_image = '<span class="pull-right"><img class="%s" src="%s"%s></span>' % \
+      direction_image = '<img class="%s" src="%s"%s>' % \
                         (image_class_name, img_url, rotation_style)
     else:
       direction_image = ''
 
-    return '<th class="%s"><a href="%s" title="%s">%s</a>%s</th>' % (css_class, url, title, title, direction_image)
+    return format_string.format(css_class=css_class, url=url, title=title, dir_img=direction_image)
 
 
 class SortableURLNode(SortableLinkNode):
@@ -142,27 +167,33 @@ class SortableClassNode(SortableLinkNode):
 
 
 def sortable_link(parser, token):
-  field, title, img_url = parse_tag_token(token)
+  field, title, format_string, img_url = parse_tag_token(token)
   return SortableLinkNode(field, title)
 
 
 def sortable_header(parser, token):
-  field, title, img_url = parse_tag_token(token)
-  return SortableTableHeaderNode(field, title, img_url)
+  field, title, format_string, img_url = parse_tag_token(token)
+  return SortableTableHeaderNode(field, title)
+
+
+def sortable_formattable(parser, token):
+  field, title, format_string, img_url = parse_tag_token(token)
+  return SortableFormattableNode(field, title, format_string, img_url)
 
 
 def sortable_url(parser, token):
-  field, title, img_url = parse_tag_token(token)
+  field, title, format_string, img_url = parse_tag_token(token)
   return SortableURLNode(field, title)
 
 
 def sortable_class(parser, token):
-  field, title, img_url = parse_tag_token(token)
+  field, title, format_string, img_url = parse_tag_token(token)
   return SortableClassNode(field, title)
 
   
 sortable_link = register.tag(sortable_link)
 sortable_header = register.tag(sortable_header)
+sortable_formattable = register.tag(sortable_formattable)
 sortable_url = register.tag(sortable_url)
 sortable_class = register.tag(sortable_class)
 
