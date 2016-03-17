@@ -1,4 +1,4 @@
-from sortable import Sortable
+from django_sortable.sortable import Sortable
 
 
 def sortable_helper(request, objects, fields=None):
