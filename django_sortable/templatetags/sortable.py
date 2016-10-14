@@ -19,7 +19,7 @@ def parse_tag_token(token):
   """Parses a tag that's supposed to be in this format: {% sortable_link field title %}  """
   bits = [b.strip('"\'') for b in token.split_contents()]
   if len(bits) < 2:
-    raise TemplateSyntaxError, "anchor tag takes at least 1 argument"
+    raise TemplateSyntaxError("anchor tag takes at least 1 argument")
   try:
     title = bits[2]
   except IndexError:
@@ -27,14 +27,24 @@ def parse_tag_token(token):
       title = bits[1][1:].capitalize()
     else:
       title = bits[1].capitalize()
+  try:
+    # TODO: make other url checks
+    format_string = bits[3]
+  except IndexError:
+    format_string = None
+  try:
+    # TODO: make other url checks
+    img_url = bits[4]
+  except IndexError:
+    img_url = None
   
-  return (bits[1].strip(), title.strip())
+  return (bits[1].strip(), title.strip(), format_string, img_url)
   
 
 class SortableLinkNode(template.Node):
   """Build sortable link based on query params."""
   
-  def __init__(self, field_name, title):
+  def __init__(self, field_name, title, format_string=None, img_url=None):
     if field_name.startswith('-'):
       self.field_name = field_name[1:]
       self.default_direction = 'desc'
@@ -44,33 +54,39 @@ class SortableLinkNode(template.Node):
     else:
       self.field_name = field_name
       self.default_direction = 'asc'
-    
-    self.title = title
+    if format_string:
+      self.format_string = template.Variable(format_string)
+    if img_url:
+      self.img_url = template.Variable(img_url)
+    self.title = template.Variable(title)
   
   
   def build_link(self, context):
     """Prepare link for rendering based on context."""
     get_params = context['request'].GET.copy()
-    
+
     field_name = get_params.get('sort', None)
     if field_name:
       del(get_params['sort'])
-    
+
     direction = get_params.get('dir', None)
     if direction:
       del(get_params['dir'])
+
     direction = direction if direction in ('asc', 'desc') else 'asc'
-      
+    is_current = self.field_name == field_name
+
+    # This part never executes.
     # if is current field, and sort isn't defined, assume asc otherwise desc
     direction = direction or ((self.field_name == field_name) and 'asc' or 'desc')
     
     # if current field and it's sorted, make link inverse, otherwise defalut to asc
-    if self.field_name == field_name:
+    if is_current:
       get_params['dir'] = directions[direction]['inverse']
     else:
       get_params['dir'] = self.default_direction
     
-    if self.field_name == field_name:
+    if is_current:
       css_class = directions[direction]['class']
     else:
       css_class = SORT_NONE_CLASS
@@ -78,27 +94,65 @@ class SortableLinkNode(template.Node):
     params = "&%s" % (get_params.urlencode(),) if len(get_params.keys()) > 0 else ''
     url = ('%s?sort=%s%s' % (context['request'].path, self.field_name, params)).replace('&', '&amp;')
     
-    return (url, css_class)
-    
-  
+    return (url, css_class, is_current)
+
+
   def render(self, context):
-    url, css_class = self.build_link(context)
-    return '<a href="%s" class="%s" title="%s">%s</a>' % (url, css_class, self.title, self.title)
+    url, css_class, is_current = self.build_link(context)
+    try:
+        title = self.title.resolve(context)
+    except template.VariableDoesNotExist:
+        title = str(self.title.var)
+    return '<a href="%s" class="%s" title="%s">%s</a>' % (url, css_class, title, title)
 
 
 class SortableTableHeaderNode(SortableLinkNode):
   """Build sortable link header based on query params."""
-  
+
   def render(self, context):
-    url, css_class = self.build_link(context)
-    return '<th class="%s"><a href="%s" title="%s">%s</a></th>' % (css_class, url, self.title, self.title)
+    url, css_class, is_current = self.build_link(context)
+    try:
+      title = self.title.resolve(context)
+    except template.VariableDoesNotExist:
+      title = str(self.title.var)
+
+    return '<th class="%s"><a href="%s" title="%s">%s</a></th>' % (css_class, url, title, title)
+
+
+class SortableFormattableNode(SortableLinkNode):
+  """Build sortable link header based on query params."""
+
+  def render(self, context):
+    url, css_class, is_current = self.build_link(context)
+    try:
+      title = self.title.resolve(context)
+    except template.VariableDoesNotExist:
+      title = str(self.title.var)
+    try:
+      format_string = self.format_string.resolve(context)
+    except:
+      format_string = unicode(self.format_string) or None
+    try:
+      img_url = self.img_url.resolve(context)
+    except:
+      img_url = self.img_url or None
+    if is_current and img_url is not None:
+      is_ascending = css_class == directions['asc']['class']
+      rotation_style = ' style="transform: rotate(180deg);"' if is_ascending else ''
+      image_class_name = 'sort-img %s-img' % css_class
+      direction_image = '<img class="%s" src="%s"%s>' % \
+                        (image_class_name, img_url, rotation_style)
+    else:
+      direction_image = ''
+
+    return format_string.format(css_class=css_class, url=url, title=title, dir_img=direction_image)
 
 
 class SortableURLNode(SortableLinkNode):
   """Build sortable link header based on query params."""
   
   def render(self, context):
-    url, css_class = self.build_link(context)
+    url, css_class, is_current = self.build_link(context)
     return url
 
 
@@ -106,32 +160,38 @@ class SortableClassNode(SortableLinkNode):
   """Build sortable link header based on query params."""
   
   def render(self, context):
-    url, css_class = self.build_link(context)
+    url, css_class, is_current = self.build_link(context)
     return css_class
 
 
 def sortable_link(parser, token):
-  field, title = parse_tag_token(token)
+  field, title, format_string, img_url = parse_tag_token(token)
   return SortableLinkNode(field, title)
 
 
 def sortable_header(parser, token):
-  field, title = parse_tag_token(token)
+  field, title, format_string, img_url = parse_tag_token(token)
   return SortableTableHeaderNode(field, title)
 
 
+def sortable_formattable(parser, token):
+  field, title, format_string, img_url = parse_tag_token(token)
+  return SortableFormattableNode(field, title, format_string, img_url)
+
+
 def sortable_url(parser, token):
-  field, title = parse_tag_token(token)
+  field, title, format_string, img_url = parse_tag_token(token)
   return SortableURLNode(field, title)
 
 
 def sortable_class(parser, token):
-  field, title = parse_tag_token(token)
+  field, title, format_string, img_url = parse_tag_token(token)
   return SortableClassNode(field, title)
 
   
 sortable_link = register.tag(sortable_link)
 sortable_header = register.tag(sortable_header)
+sortable_formattable = register.tag(sortable_formattable)
 sortable_url = register.tag(sortable_url)
 sortable_class = register.tag(sortable_class)
 
